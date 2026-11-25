@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Đồng Hồ Đếm Ngược</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    body {
+      background-color: #121212;
+      color: #ffffff;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .timer-container {
+      background: #1e1e1e;
+      padding: 40px 50px;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      text-align: center;
+      width: 90%;
+      max-width: 420px;
+    }
+    h2 {
+      margin-top: 0;
+      color: #bbbbbb;
+      font-weight: 500;
+      font-size: 20px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+    .time-display {
+      font-size: 72px;
+      font-weight: bold;
+      font-variant-numeric: tabular-nums;
+      margin: 20px 0 30px;
+      color: #00e676;
+      transition: color 0.3s;
+    }
+    /* Animation cảnh báo khi thời gian dưới 1 phút (60 giây) */
+    .warning {
+      color: #ff1744;
+      animation: pulseWarning 1s infinite ease-in-out;
+    }
+    @keyframes pulseWarning {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.08); opacity: 0.7; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+    button {
+      padding: 12px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    button:active {
+      transform: scale(0.97);
+    }
+    .btn-start { background-color: #00c853; color: #fff; }
+    .btn-pause { background-color: #ffab00; color: #121212; }
+    .btn-reset { background-color: #424242; color: #fff; }
+
+    /* Modal Alert khi hết giờ */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .modal-box {
+      background: #252525;
+      padding: 30px;
+      border-radius: 12px;
+      text-align: center;
+      max-width: 340px;
+      width: 90%;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
+      animation: popIn 0.25s ease-out;
+    }
+    @keyframes popIn {
+      from { transform: scale(0.85); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .modal-box h3 {
+      margin-top: 0;
+      color: #ff5252;
+      font-size: 24px;
+    }
+    .modal-box p {
+      color: #ddd;
+      margin-bottom: 24px;
+    }
+    .btn-close-modal {
+      background-color: #2979ff;
+      color: #fff;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="timer-container">
+    <h2>Đếm Ngược 10 Phút</h2>
+    <div id="timeDisplay" class="time-display">10:00</div>
+    <div class="controls">
+      <button id="startBtn" class="btn-start">Bắt đầu</button>
+      <button id="pauseBtn" class="btn-pause">Tạm dừng</button>
+      <button id="resetBtn" class="btn-reset">Đặt lại</button>
+    </div>
+  </div>
+
+  <!-- Modal thông báo hết giờ -->
+  <div id="timeUpModal" class="modal-overlay">
+    <div class="modal-box">
+      <h3>⏰ Hết thời gian!</h3>
+      <p>Thời gian đếm ngược 10 phút đã kết thúc.</p>
+      <button id="closeModalBtn" class="btn-close-modal">Đóng</button>
+    </div>
+  </div>
+
+  <script>
+    const INITIAL_SECONDS = 10 * 60; // 10 phút = 600 giây
+    let remainingSeconds = INITIAL_SECONDS;
+    let timerInterval = null;
+    let endTimestamp = null;
+
+    const timeDisplay = document.getElementById("timeDisplay");
+    const startBtn = document.getElementById("startBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const timeUpModal = document.getElementById("timeUpModal");
+    const closeModalBtn = document.getElementById("closeModalBtn");
+
+    // Định dạng số giây thành chuỗi MM:SS
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    // Cập nhật giao diện & hiệu ứng cảnh báo dưới 1 phút
+    function updateUI() {
+      timeDisplay.textContent = formatTime(remainingSeconds);
+
+      if (remainingSeconds > 0 && remainingSeconds < 60) {
+        timeDisplay.classList.add("warning");
+      } else {
+        timeDisplay.classList.remove("warning");
+      }
+    }
+
+    // Dọn dẹp interval an toàn để tránh memory leak
+    function stopTimer() {
+      if (timerInterval !== null) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+    }
+
+    // Bắt đầu đếm ngược
+    function startTimer() {
+      // Ngăn tạo nhiều interval chồng chéo nếu bấm Start nhiều lần
+      if (timerInterval !== null || remainingSeconds <= 0) return;
+
+      // Tính mốc thời gian kết thúc dựa trên đồng hồ hệ thống (tránh trôi thời gian)
+      endTimestamp = Date.now() + remainingSeconds * 1000;
+
+      timerInterval = setInterval(() => {
+        const diff = Math.round((endTimestamp - Date.now()) / 1000);
+        remainingSeconds = Math.max(0, diff);
+        updateUI();
+
+        if (remainingSeconds === 0) {
+          stopTimer();
+          timeUpModal.style.display = "flex";
+        }
+      }, 250); // Kiểm tra mỗi 250ms để hiển thị mượt và chính xác từng giây
+    }
+
+    // Tạm dừng
+    function pauseTimer() {
+      stopTimer();
+    }
+
+    // Đặt lại về 10:00
+    function resetTimer() {
+      stopTimer();
+      remainingSeconds = INITIAL_SECONDS;
+      updateUI();
+    }
+
+    startBtn.addEventListener("click", startTimer);
+    pauseBtn.addEventListener("click", pauseTimer);
+    resetBtn.addEventListener("click", resetTimer);
+
+    closeModalBtn.addEventListener("click", () => {
+      timeUpModal.style.display = "none";
+    });
+
+    // Dọn dẹp bộ nhớ khi người dùng rời khỏi trang
+    window.addEventListener("beforeunload", stopTimer);
+
+    // Khởi tạo hiển thị ban đầu
+    updateUI();
+  </script>
+
+</body>
+</html>
